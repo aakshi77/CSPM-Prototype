@@ -66,8 +66,38 @@ def extract_s3_security_posture(bucket_name="test-bucket"):
         logger.error(f"Unexpected error, LocalStack might be down: {e}")
         return fetch_mock_evidence(bucket_name)
 
+def calculate_blast_radius(resource_name):
+    """
+    Simulates a business dependency graph to determine the impact of a resource failure or compromise.
+    """
+    logger.info(f"Calculating Blast Radius for {resource_name}")
+    
+    # Mock Dependency Graph defining what downstream services rely on this bucket
+    dependency_graph = {
+        "test-bucket-public": ["Production Web App Frontend", "Customer PII Database", "Global Content Delivery Network"],
+        "test-bucket-unencrypted": ["Internal Financial Reporting Tool", "Data Science Model Training Pipeline"],
+        "test-bucket-no-mfa": ["Historical Archival System"],
+        "test-bucket-secure": ["Development Sandbox Environment"],
+        "test-bucket-complex-breach": ["Global Payment Gateway API (Critical)", "User Authentication Service"]
+    }
+    
+    affected_services = dependency_graph.get(resource_name, ["Unknown Dependencies"])
+    
+    impact_score = "Low"
+    if len(affected_services) > 2 or any("Production" in s or "Customer" in s for s in affected_services):
+        impact_score = "High"
+    elif len(affected_services) > 1 or any("Internal" in s for s in affected_services):
+        impact_score = "Medium"
+        
+    return {
+        "impact_score": impact_score,
+        "affected_downstream_services": affected_services
+    }
+
 def fetch_mock_evidence(bucket_name):
     logger.info(f"LocalStack unavailable. Falling back to mock extracted evidence for {bucket_name}.")
+    
+    blast_radius = calculate_blast_radius(bucket_name)
     
     if bucket_name == "test-bucket-public":
         mock_evidence = {
@@ -84,7 +114,8 @@ def fetch_mock_evidence(bucket_name):
             ],
             "owner": {"DisplayName": "sandbox-admin", "ID": "abc...123"},
             "server_side_encryption": {"ServerSideEncryptionConfiguration": {"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]}},
-            "versioning": {"Status": "Enabled", "MFADelete": "Enabled"}
+            "versioning": {"Status": "Enabled", "MFADelete": "Enabled"},
+            "blast_radius": blast_radius
         }
     elif bucket_name == "test-bucket-unencrypted":
         mock_evidence = {
@@ -93,7 +124,8 @@ def fetch_mock_evidence(bucket_name):
             "grants": [],
             "owner": {"DisplayName": "sandbox-admin", "ID": "abc...123"},
             "server_side_encryption": None,
-            "versioning": {"Status": "Enabled", "MFADelete": "Enabled"}
+            "versioning": {"Status": "Enabled", "MFADelete": "Enabled"},
+            "blast_radius": blast_radius
         }
     elif bucket_name == "test-bucket-no-mfa":
         mock_evidence = {
@@ -102,7 +134,41 @@ def fetch_mock_evidence(bucket_name):
             "grants": [],
             "owner": {"DisplayName": "sandbox-admin", "ID": "abc...123"},
             "server_side_encryption": {"ServerSideEncryptionConfiguration": {"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "aws:kms"}}]}},
-            "versioning": {"Status": "Enabled", "MFADelete": "Disabled"}
+            "versioning": {"Status": "Enabled", "MFADelete": "Disabled"},
+            "blast_radius": blast_radius
+        }
+    elif bucket_name == "test-bucket-complex-breach":
+        # A completely new, complex configuration the rule-based system hasn't seen
+        # but the LLM should be able to parse.
+        mock_evidence = {
+             "bucket_name": bucket_name,
+             "region": "us-west-2",
+             "grants": [
+                 {
+                     "Grantee": {
+                         "Type": "CanonicalUser",
+                         "ID": "suspicious-external-account-id-999"
+                     },
+                     "Permission": "FULL_CONTROL"
+                 }
+             ],
+             "bucket_policy": {
+                 "Statement": [
+                     {
+                         "Effect": "Allow",
+                         "Principal": "*",
+                         "Action": "s3:GetObject",
+                         "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                         "Condition": {
+                             "IpAddress": {"aws:SourceIp": "0.0.0.0/0"}
+                         }
+                     }
+                 ]
+             },
+             "public_access_block": "Not configured",
+             "server_side_encryption": None,
+             "versioning": {"Status": "Suspended"},
+             "blast_radius": blast_radius
         }
     else:
         # Default empty/secure configuration
@@ -112,7 +178,8 @@ def fetch_mock_evidence(bucket_name):
             "grants": [],
             "owner": {"DisplayName": "sandbox-admin", "ID": "abc...123"},
             "server_side_encryption": {"ServerSideEncryptionConfiguration": {"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]}},
-            "versioning": {"Status": "Enabled", "MFADelete": "Enabled"}
+            "versioning": {"Status": "Enabled", "MFADelete": "Enabled"},
+            "blast_radius": blast_radius
         }
         
     with open('cloud_evidence.json', 'w') as f:

@@ -2,6 +2,7 @@ import json
 import os
 import logging
 from dotenv import load_dotenv
+from crypto_manager import generate_signature
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,7 +85,29 @@ Do not include markdown blocks or any other text outside the JSON.
             response = model.generate_content(prompt)
             return parse_json_response(response.text)
         except Exception as e:
-            logger.warning(f"Google Gemini failed or not configured correctly: {e}. Falling back to mock...")
+            logger.warning(f"Google Gemini failed or not configured correctly: {e}. Falling back to Groq...")
+
+    # Fallback to Groq (Llama 3)
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+    if groq_api_key and groq_api_key != "your_groq_api_key_here":
+        try:
+            from groq import Groq
+            logger.info("Using Groq (Llama 3) API as fallback...")
+            client = Groq(api_key=groq_api_key)
+            
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                model="llama3-70b-8192",
+                temperature=0.1,
+            )
+            return parse_json_response(chat_completion.choices[0].message.content)
+        except Exception as e:
+            logger.warning(f"Groq failed or not configured correctly: {e}. Falling back to mock...")
 
     # Fallback for prototype running without API keys
     logger.info("Using Mock AI Response for local prototype testing without keys...")
@@ -108,29 +131,84 @@ Do not include markdown blocks or any other text outside the JSON.
     mfa_delete = versioning.get("MFADelete") == "Disabled"
             
     if is_public:
-        return {
+        assessment = {
             "risk_level": "High",
             "explanation": "The S3 bucket ACL grants public 'AllUsers' group read/write access. This allows any unauthenticated user on the internet to access the bucket's objects, posing a severe data breach risk.",
             "remediation_command": f"aws --endpoint-url=http://localhost:4566 s3api put-public-access-block --bucket {bucket_name} --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
         }
     elif encryption is None:
-        return {
+        assessment = {
             "risk_level": "High",
             "explanation": "The S3 bucket does not have Server-Side Encryption (SSE) configured by default. Data at rest is vulnerable and not aligned with compliance standards.",
             "remediation_command": f"aws --endpoint-url=http://localhost:4566 s3api put-bucket-encryption --bucket {bucket_name} --server-side-encryption-configuration '{{\"Rules\": [{{\"ApplyServerSideEncryptionByDefault\": {{\"SSEAlgorithm\": \"AES256\"}}}}]}}'"
         }
     elif mfa_delete:
-         return {
+         assessment = {
             "risk_level": "Medium",
             "explanation": "The S3 bucket has versioning enabled but MFA Delete is disabled. This leaves the bucket vulnerable to unauthorized permanent deletion of object versions or changes to the versioning state.",
             "remediation_command": f"aws --endpoint-url=http://localhost:4566 s3api put-bucket-versioning --bucket {bucket_name} --versioning-configuration Status=Enabled,MFADelete=Enabled --mfa 'arn:aws:iam::123456789012:mfa/root-account-mfa-device 123456'"
         }
     else:
-        return {
+        assessment = {
             "risk_level": "Low",
             "explanation": "The S3 bucket configuration appears secure based on the extracted metadata. No open public ACLs, missing encryption, or disabled MFA-Delete configurations were found.",
             "remediation_command": "# No critical access/configuration issues found."
         }
+        
+    assessment["blast_radius"] = evidence.get("blast_radius", {})
+    
+    # ---------------------------------------------------------
+    # The Critic LLM Call
+    # ---------------------------------------------------------
+    logger.info("Engaging Critic LLM for Zero-Trust Validation...")
+    
+    critic_prompt = f"""You are an automated safety validation tool. Analyze this AWS CLI command. Does it pose a risk of deleting data or causing an irreversible outage? Return a JSON with 'is_safe' (boolean) and 'critic_reason' (string).
+    Command: {assessment['remediation_command']}
+    """
+    
+    is_safe = True
+    critic_reason = "Command validated locally. The script only updates resource security configurations and does not contain destructive actions."
+    
+    # Attempt to use Groq Critic if available 
+    if groq_api_key and groq_api_key != "your_groq_api_key_here":
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_api_key)
+            chat_completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": critic_prompt}],
+                model="llama3-70b-8192",
+                temperature=0.1,
+            )
+            critic_response = parse_json_response(chat_completion.choices[0].message.content)
+            is_safe = critic_response.get("is_safe", True)
+            critic_reason = critic_response.get("critic_reason", "Groq Critic Validated.")
+        except Exception as e:
+            logger.warning(f"Groq Critic failed: {e}. Falling back to local regex critic.")
+            if "delete" in assessment["remediation_command"].lower() and "mfadelete=enabled" not in assessment["remediation_command"].lower():
+                is_safe = False
+                critic_reason = "Command rejected by local regex. Destructive string detected."
+    else:
+        # Local mock critic
+        if "delete" in assessment["remediation_command"].lower() and "mfadelete=enabled" not in assessment["remediation_command"].lower():
+            is_safe = False
+            critic_reason = "Command rejected by local regex. Destructive string detected."
+        
+    assessment["critic_validation"] = {
+        "is_safe": is_safe,
+        "critic_reason": critic_reason
+    }
+    
+    # ---------------------------------------------------------
+    # Zero-Trust Cryptographic Signing
+    # ---------------------------------------------------------
+    if is_safe:
+        logger.info("Critic approved safe execution. Generating cryptographic signature bounds.")
+        assessment["cryptographic_signature"] = generate_signature(assessment["remediation_command"])
+    else:
+        logger.warning("Critic defined script as UNSAFE. Cryptographic signature withheld.")
+        assessment["cryptographic_signature"] = "UNSIGNED_UNSAFE_SCRIPT"
+        
+    return assessment
 
 def parse_json_response(text):
     text = text.strip()

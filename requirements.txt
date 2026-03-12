@@ -3,3 +3,4 @@ streamlit
 oci
 google-generativeai
 python-dotenv
+groq

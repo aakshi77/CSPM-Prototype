@@ -22,6 +22,10 @@ st.sidebar.title("Configuration")
 live_aws_mode = st.sidebar.toggle("Enable Live AWS Mode")
 
 bucket_name = None
+aws_access_key = None
+aws_secret_key = None
+aws_region = None
+target_bucket = None
 
 if live_aws_mode:
     st.sidebar.warning("Live Mode Active. The prototype will attempt to connect to the real AWS internet endpoint using these credentials.")

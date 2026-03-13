@@ -102,7 +102,7 @@ Do not include markdown blocks or any other text outside the JSON.
                         "content": prompt,
                     }
                 ],
-                model="llama3-70b-8192",
+                model="llama-3.3-70b-versatile",
                 temperature=0.1,
             )
             return parse_json_response(chat_completion.choices[0].message.content)
@@ -176,7 +176,7 @@ Do not include markdown blocks or any other text outside the JSON.
             client = Groq(api_key=groq_api_key)
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": critic_prompt}],
-                model="llama3-70b-8192",
+                model="llama-3.3-70b-versatile",
                 temperature=0.1,
             )
             critic_response = parse_json_response(chat_completion.choices[0].message.content)

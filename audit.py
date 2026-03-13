@@ -7,20 +7,35 @@ from botocore.exceptions import ClientError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def extract_s3_security_posture(bucket_name="test-bucket"):
+def extract_s3_security_posture(bucket_name="test-bucket", aws_access_key_id=None, aws_secret_access_key=None, region_name=None):
     """
-    Connects to LocalStack S3 and retrieves the ACL for the given bucket.
-    Saves the evidence to cloud_evidence.json.
+    Connects to AWS S3 (or LocalStack if credentials are not provided) 
+    and retrieves the ACL/Policies for the given bucket.
     """
-    logger.info(f"Connecting to LocalStack to extract security posture for {bucket_name}")
+    # Check if we should run Live AWS Mode
+    is_live_mode = bool(aws_access_key_id and aws_secret_access_key and region_name)
+    
+    if is_live_mode:
+        logger.info(f"LIVE AWS MODE ACTIVE. Connecting to real AWS infrastructure for bucket: {bucket_name} in {region_name}")
+    else:
+        logger.info(f"Connecting to LocalStack to extract security posture for {bucket_name}")
+        
     try:
-        s3 = boto3.client(
-            's3',
-            endpoint_url='http://localhost:4566',
-            aws_access_key_id='test',
-            aws_secret_access_key='test',
-            region_name='us-east-1'
-        )
+        if is_live_mode:
+            s3 = boto3.client(
+                's3',
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key,
+                region_name=region_name
+            )
+        else:
+            s3 = boto3.client(
+                's3',
+                endpoint_url='http://localhost:4566',
+                aws_access_key_id='test',
+                aws_secret_access_key='test',
+                region_name='us-east-1'
+            )
         
         response = s3.get_bucket_acl(Bucket=bucket_name)
         

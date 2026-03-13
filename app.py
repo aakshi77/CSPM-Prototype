@@ -17,15 +17,36 @@ bucket_options = {
     "test-bucket-complex-breach": "New/Unseen: Complex Data Exfiltration Scenario (Unknown Risk)"
 }
 
-bucket_name = st.selectbox(
-    "Select Mock S3 Bucket Profile for Audit:",
-    options=list(bucket_options.keys()),
-    format_func=lambda x: f"{x} - {bucket_options[x]}"
-)
+# --- Sidebar: Live AWS Mode Configuration ---
+st.sidebar.title("Configuration")
+live_aws_mode = st.sidebar.toggle("Enable Live AWS Mode")
+
+bucket_name = None
+
+if live_aws_mode:
+    st.sidebar.warning("Live Mode Active. The prototype will attempt to connect to the real AWS internet endpoint using these credentials.")
+    aws_access_key = st.sidebar.text_input("AWS Access Key ID", type="password")
+    aws_secret_key = st.sidebar.text_input("AWS Secret Access Key", type="password")
+    aws_region = st.sidebar.text_input("AWS Region", value="us-east-1")
+    target_bucket = st.sidebar.text_input("Target AWS S3 Bucket Name", value="my-real-bucket-name")
+else:
+    st.sidebar.info("Running in Sandbox Mode with local mock profiles.")
+    
+    bucket_name = st.selectbox(
+        "Select Mock S3 Bucket Profile for Audit:",
+        options=list(bucket_options.keys()),
+        format_func=lambda x: f"{x} - {bucket_options[x]}"
+    )
+    target_bucket = bucket_name
 
 if st.button("Run Security Audit"):
-    with st.spinner("Extracting LocalStack S3 Evidence..."):
-        evidence = extract_s3_security_posture(bucket_name)
+    with st.spinner("Extracting S3 Evidence..."):
+        evidence = extract_s3_security_posture(
+            bucket_name=target_bucket,
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region
+        )
     
     col1, col2 = st.columns(2)
     with col1:

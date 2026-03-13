@@ -100,7 +100,7 @@ if st.button("Run Security Audit"):
         
         # Generator function for typing effect
         def stream_data():
-            for word in explanation.split(" "):
+            for word in explanation.split():
                 yield word + " "
                 time.sleep(0.04)
                 
@@ -128,7 +128,9 @@ if st.button("Run Security Audit"):
         st.markdown(f"**Critic Reasoning:** {critic.get('critic_reason', '')}")
         
         st.markdown("**Cryptographic Signature (HMAC-SHA256):**")
-        st.code(assessment.get("cryptographic_signature", ""), language="text")
+        
+        signature = assessment.get("cryptographic_signature", "UNSIGNED_UNSAFE_SCRIPT")
+        st.code(signature, language="text")
         
         # Conditional Display of Executable Command
         if is_safe and assessment.get("cryptographic_signature") != "UNSIGNED_UNSAFE_SCRIPT":
